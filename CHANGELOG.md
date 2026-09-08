@@ -4,6 +4,7 @@
 
 ### Added
 
+- Optional `high` / `low` aliases for page / ticket MWMB alert keys in prometheus/v1 (`page_alert` / `ticket_alert`) and the Kubernetes CRD (`pageAlert` / `ticketAlert`). Old keys still work. Setting both names for one class is an error.
 - `server`: Support HTTP request/response MCP with the `--mcp-enabled` and `--mcp-path` flags.
 - MCP: Add the `context`, `list_slos` and `get_slo` tools.
 

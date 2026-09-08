@@ -60,6 +60,8 @@ func (in *Alerting) DeepCopyInto(out *Alerting) {
 	}
 	in.PageAlert.DeepCopyInto(&out.PageAlert)
 	in.TicketAlert.DeepCopyInto(&out.TicketAlert)
+	in.High.DeepCopyInto(&out.High)
+	in.Low.DeepCopyInto(&out.Low)
 	return
 }
 

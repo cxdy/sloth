@@ -18,10 +18,11 @@ import (
 
 func TestK8sSlothPrometheusYAMLSpecLoader(t *testing.T) {
 	tests := map[string]struct {
-		specYaml string
-		plugins  map[string]pluginenginesli.SLIPlugin
-		expModel *model.PromSLOGroup
-		expErr   bool
+		specYaml       string
+		plugins        map[string]pluginenginesli.SLIPlugin
+		expModel       *model.PromSLOGroup
+		expErr         bool
+		expErrContains []string
 	}{
 		"Empty spec should fail.": {
 			specYaml: ``,
@@ -436,6 +437,362 @@ spec:
 				}},
 			},
 		},
+
+		"Spec using high/low alert aliases should map like pageAlert/ticketAlert.": {
+			specYaml: `
+apiVersion: sloth.slok.dev/v1
+kind: PrometheusServiceLevel
+metadata:
+  name: k8s-test-svc
+  namespace: test-ns
+spec:
+  service: "test-svc"
+  slos:
+    - name: "slo1"
+      objective: 99.9
+      sli:
+        raw:
+          errorRatioQuery: test_expr_ratio
+      alerting:
+        name: testAlert
+        labels:
+          tier: "1"
+        annotations:
+          runbook: http://whatever.com
+        high:
+          labels:
+            severity: slack
+            channel: "#a-myteam"
+          annotations:
+            message: "This is very important."
+        low:
+          labels:
+            severity: slack
+            channel: "#a-not-so-important"
+          annotations:
+            message: "This is not very important."
+`,
+			expModel: &model.PromSLOGroup{SLOs: []model.PromSLO{
+				{
+					ID:         "test-svc-slo1",
+					Name:       "slo1",
+					Service:    "test-svc",
+					TimeWindow: 30 * 24 * time.Hour,
+					SLI:        model.PromSLI{Raw: &model.PromSLIRaw{ErrorRatioQuery: "test_expr_ratio"}},
+					Objective:  99.9,
+					Labels:     map[string]string{},
+					PageAlertMeta: model.PromAlertMeta{
+						Name: "testAlert",
+						Labels: map[string]string{
+							"tier":     "1",
+							"severity": "slack",
+							"channel":  "#a-myteam",
+						},
+						Annotations: map[string]string{
+							"message": "This is very important.",
+							"runbook": "http://whatever.com",
+						},
+					},
+					TicketAlertMeta: model.PromAlertMeta{
+						Name: "testAlert",
+						Labels: map[string]string{
+							"tier":     "1",
+							"severity": "slack",
+							"channel":  "#a-not-so-important",
+						},
+						Annotations: map[string]string{
+							"message": "This is not very important.",
+							"runbook": "http://whatever.com",
+						},
+					},
+					Plugins: model.SLOPlugins{Plugins: []model.PromSLOPluginMetadata{}},
+				},
+			},
+				OriginalSource: model.PromSLOGroupSource{K8sSlothV1: &kubeslothv1.PrometheusServiceLevel{
+					TypeMeta:   metav1.TypeMeta{Kind: "PrometheusServiceLevel", APIVersion: "sloth.slok.dev/v1"},
+					ObjectMeta: metav1.ObjectMeta{Name: "k8s-test-svc", Namespace: "test-ns"},
+					Spec: kubeslothv1.PrometheusServiceLevelSpec{
+						Service: "test-svc",
+						SLOs: []kubeslothv1.SLO{
+							{
+								Name:      "slo1",
+								Objective: 99.9,
+								SLI:       kubeslothv1.SLI{Raw: &kubeslothv1.SLIRaw{ErrorRatioQuery: "test_expr_ratio"}},
+								Alerting: kubeslothv1.Alerting{
+									Name:        "testAlert",
+									Labels:      map[string]string{"tier": "1"},
+									Annotations: map[string]string{"runbook": "http://whatever.com"},
+									High: kubeslothv1.Alert{
+										Labels:      map[string]string{"channel": "#a-myteam", "severity": "slack"},
+										Annotations: map[string]string{"message": "This is very important."},
+									},
+									Low: kubeslothv1.Alert{
+										Labels:      map[string]string{"channel": "#a-not-so-important", "severity": "slack"},
+										Annotations: map[string]string{"message": "This is not very important."},
+									},
+								},
+							},
+						},
+					},
+				}},
+			},
+		},
+
+		"Spec disabling alerts with high/low should map like pageAlert/ticketAlert disable.": {
+			specYaml: `
+apiVersion: sloth.slok.dev/v1
+kind: PrometheusServiceLevel
+metadata:
+  name: k8s-test-svc
+  namespace: test-ns
+spec:
+  service: "test-svc"
+  slos:
+    - name: "slo1"
+      objective: 99.9
+      sli:
+        raw:
+          errorRatioQuery: test_expr_ratio
+      alerting:
+        high:
+          disable: true
+        low:
+          disable: true
+`,
+			expModel: &model.PromSLOGroup{SLOs: []model.PromSLO{
+				{
+					ID:              "test-svc-slo1",
+					Name:            "slo1",
+					Service:         "test-svc",
+					TimeWindow:      30 * 24 * time.Hour,
+					SLI:             model.PromSLI{Raw: &model.PromSLIRaw{ErrorRatioQuery: "test_expr_ratio"}},
+					Objective:       99.9,
+					Labels:          map[string]string{},
+					PageAlertMeta:   model.PromAlertMeta{Disable: true},
+					TicketAlertMeta: model.PromAlertMeta{Disable: true},
+					Plugins:         model.SLOPlugins{Plugins: []model.PromSLOPluginMetadata{}},
+				},
+			},
+				OriginalSource: model.PromSLOGroupSource{K8sSlothV1: &kubeslothv1.PrometheusServiceLevel{
+					TypeMeta:   metav1.TypeMeta{Kind: "PrometheusServiceLevel", APIVersion: "sloth.slok.dev/v1"},
+					ObjectMeta: metav1.ObjectMeta{Name: "k8s-test-svc", Namespace: "test-ns"},
+					Spec: kubeslothv1.PrometheusServiceLevelSpec{
+						Service: "test-svc",
+						SLOs: []kubeslothv1.SLO{
+							{
+								Name:      "slo1",
+								Objective: 99.9,
+								SLI:       kubeslothv1.SLI{Raw: &kubeslothv1.SLIRaw{ErrorRatioQuery: "test_expr_ratio"}},
+								Alerting: kubeslothv1.Alerting{
+									High: kubeslothv1.Alert{Disable: true},
+									Low:  kubeslothv1.Alert{Disable: true},
+								},
+							},
+						},
+					},
+				}},
+			},
+		},
+
+		"Spec with both pageAlert and high on one SLO should fail.": {
+			specYaml: `
+apiVersion: sloth.slok.dev/v1
+kind: PrometheusServiceLevel
+metadata:
+  name: k8s-test-svc
+  namespace: test-ns
+spec:
+  service: "test-svc"
+  slos:
+    - name: "slo1"
+      objective: 99.9
+      sli:
+        raw:
+          errorRatioQuery: test_expr_ratio
+      alerting:
+        pageAlert:
+          labels:
+            severity: slack
+        high:
+          labels:
+            severity: critical
+`,
+			expErr:         true,
+			expErrContains: []string{"pageAlert", "high"},
+		},
+
+		"Spec with both ticketAlert and low on one SLO should fail.": {
+			specYaml: `
+apiVersion: sloth.slok.dev/v1
+kind: PrometheusServiceLevel
+metadata:
+  name: k8s-test-svc
+  namespace: test-ns
+spec:
+  service: "test-svc"
+  slos:
+    - name: "slo1"
+      objective: 99.9
+      sli:
+        raw:
+          errorRatioQuery: test_expr_ratio
+      alerting:
+        ticketAlert:
+          labels:
+            severity: slack
+        low:
+          labels:
+            severity: warning
+`,
+			expErr:         true,
+			expErrContains: []string{"ticketAlert", "low"},
+		},
+
+		"Spec with empty pageAlert object and high should fail.": {
+			specYaml: `
+apiVersion: sloth.slok.dev/v1
+kind: PrometheusServiceLevel
+metadata:
+  name: k8s-test-svc
+  namespace: test-ns
+spec:
+  service: "test-svc"
+  slos:
+    - name: "slo1"
+      objective: 99.9
+      sli:
+        raw:
+          errorRatioQuery: test_expr_ratio
+      alerting:
+        pageAlert: {}
+        high:
+          labels:
+            severity: critical
+`,
+			expErr:         true,
+			expErrContains: []string{"pageAlert", "high"},
+		},
+
+		"Spec mixing high with ticketAlert should succeed.": {
+			specYaml: `
+apiVersion: sloth.slok.dev/v1
+kind: PrometheusServiceLevel
+metadata:
+  name: k8s-test-svc
+  namespace: test-ns
+spec:
+  service: "test-svc"
+  slos:
+    - name: "slo1"
+      objective: 99.9
+      sli:
+        raw:
+          errorRatioQuery: test_expr_ratio
+      alerting:
+        name: testAlert
+        high:
+          labels:
+            severity: critical
+        ticketAlert:
+          disable: true
+`,
+			expModel: &model.PromSLOGroup{SLOs: []model.PromSLO{
+				{
+					ID:         "test-svc-slo1",
+					Name:       "slo1",
+					Service:    "test-svc",
+					TimeWindow: 30 * 24 * time.Hour,
+					SLI:        model.PromSLI{Raw: &model.PromSLIRaw{ErrorRatioQuery: "test_expr_ratio"}},
+					Objective:  99.9,
+					Labels:     map[string]string{},
+					PageAlertMeta: model.PromAlertMeta{
+						Name:        "testAlert",
+						Labels:      map[string]string{"severity": "critical"},
+						Annotations: map[string]string{},
+					},
+					TicketAlertMeta: model.PromAlertMeta{Disable: true},
+					Plugins:         model.SLOPlugins{Plugins: []model.PromSLOPluginMetadata{}},
+				},
+			},
+				OriginalSource: model.PromSLOGroupSource{K8sSlothV1: &kubeslothv1.PrometheusServiceLevel{
+					TypeMeta:   metav1.TypeMeta{Kind: "PrometheusServiceLevel", APIVersion: "sloth.slok.dev/v1"},
+					ObjectMeta: metav1.ObjectMeta{Name: "k8s-test-svc", Namespace: "test-ns"},
+					Spec: kubeslothv1.PrometheusServiceLevelSpec{
+						Service: "test-svc",
+						SLOs: []kubeslothv1.SLO{
+							{
+								Name:      "slo1",
+								Objective: 99.9,
+								SLI:       kubeslothv1.SLI{Raw: &kubeslothv1.SLIRaw{ErrorRatioQuery: "test_expr_ratio"}},
+								Alerting: kubeslothv1.Alerting{
+									Name:        "testAlert",
+									High:        kubeslothv1.Alert{Labels: map[string]string{"severity": "critical"}},
+									TicketAlert: kubeslothv1.Alert{Disable: true},
+								},
+							},
+						},
+					},
+				}},
+			},
+		},
+
+		"Spec omitting pageAlert and ticketAlert keys should default-enable both classes.": {
+			specYaml: `
+apiVersion: sloth.slok.dev/v1
+kind: PrometheusServiceLevel
+metadata:
+  name: k8s-test-svc
+  namespace: test-ns
+spec:
+  service: "test-svc"
+  slos:
+    - name: "slo1"
+      objective: 99.9
+      sli:
+        raw:
+          errorRatioQuery: test_expr_ratio
+      alerting:
+        name: testAlert
+`,
+			expModel: &model.PromSLOGroup{SLOs: []model.PromSLO{
+				{
+					ID:         "test-svc-slo1",
+					Name:       "slo1",
+					Service:    "test-svc",
+					TimeWindow: 30 * 24 * time.Hour,
+					SLI:        model.PromSLI{Raw: &model.PromSLIRaw{ErrorRatioQuery: "test_expr_ratio"}},
+					Objective:  99.9,
+					Labels:     map[string]string{},
+					PageAlertMeta: model.PromAlertMeta{
+						Name:        "testAlert",
+						Labels:      map[string]string{},
+						Annotations: map[string]string{},
+					},
+					TicketAlertMeta: model.PromAlertMeta{
+						Name:        "testAlert",
+						Labels:      map[string]string{},
+						Annotations: map[string]string{},
+					},
+					Plugins: model.SLOPlugins{Plugins: []model.PromSLOPluginMetadata{}},
+				},
+			},
+				OriginalSource: model.PromSLOGroupSource{K8sSlothV1: &kubeslothv1.PrometheusServiceLevel{
+					TypeMeta:   metav1.TypeMeta{Kind: "PrometheusServiceLevel", APIVersion: "sloth.slok.dev/v1"},
+					ObjectMeta: metav1.ObjectMeta{Name: "k8s-test-svc", Namespace: "test-ns"},
+					Spec: kubeslothv1.PrometheusServiceLevelSpec{
+						Service: "test-svc",
+						SLOs: []kubeslothv1.SLO{
+							{
+								Name:      "slo1",
+								Objective: 99.9,
+								SLI:       kubeslothv1.SLI{Raw: &kubeslothv1.SLIRaw{ErrorRatioQuery: "test_expr_ratio"}},
+								Alerting:  kubeslothv1.Alerting{Name: "testAlert"},
+							},
+						},
+					},
+				}},
+			},
+		},
 	}
 
 	for name, test := range tests {
@@ -446,7 +803,11 @@ spec:
 			gotModel, err := loader.LoadSpec(context.TODO(), []byte(test.specYaml))
 
 			if test.expErr {
-				assert.Error(err)
+				if assert.Error(err) {
+					for _, s := range test.expErrContains {
+						assert.Contains(err.Error(), s)
+					}
+				}
 			} else if assert.NoError(err) {
 				assert.Equal(test.expModel, gotModel)
 			}
